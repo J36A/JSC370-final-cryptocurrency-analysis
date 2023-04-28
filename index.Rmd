@@ -2,8 +2,8 @@
 title: "JSC370 Final Project - Cryptocurrency Analysis"
 author: "Jin Shang"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 
 # Introduction
@@ -18,3 +18,8 @@ Now, cryptocurrency has become an increasingly important investment in recent ye
 
 In this project, we will explore the historical price data of some cryptocurrencies and try to gain insights into its price trends and factors that may affect its price. We will use various statistical and data visualization techniques to analyze the data and draw conclusions about the cryptocurrency's past and potential future performance.
 
+# External Link for PDF Report
+
+[pdf report](https://github.com/J36A/JSC370-final-cryptocurrency-analysis/blob/main/report.pdf)
+
+[github repo](https://github.com/J36A/JSC370-final-cryptocurrency-analysis)
