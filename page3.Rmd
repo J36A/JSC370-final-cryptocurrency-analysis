@@ -1,0 +1,20 @@
+---
+title: "Conclusion & Limitation"
+output: 
+    html_document:
+        toc: TRUE
+        toc_float: TRUE
+---
+
+# Conclusion
+
+Due to the complexity of this problem, we did not find variables or factor that significantly affect the price or changes of cryptocurrency. But we still get some insights, such as the strong correlation among the prices of most cryptocurrencies, except for some stablecoins like Tether USD. Additionally, we find no strong correlation between gpu released time and cryptocurrency prices, which is not consistent with our guesses. Fortunately, additive decomposition model can explain to some extent the effect of price by date. However, this model tend to overfit the training data, especialy in this case. Thus we should not predict the future price by this model.
+
+# Limitations
+
+There are two main limitations in our project. Firstly, we have explored only a few cryptocurrencies chosen based on price, change etc. So our conclusions may not be representative of all cryptocurrencies, but we can still get some insights from this project. Secondly, the variables we extracted is not enough. Like I said in methods part, the historical supply and number of tweets may give us more informative insights. However, due to lack of premium, I have no access to use these APIs.
+
+# Further Research
+
+According to the limitations, we can analyze more historical prices of cryptocurrencies. And extracting those data I state above to do further research.
+

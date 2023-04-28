@@ -1,0 +1,415 @@
+---
+title: "Methods & Results"
+output: 
+  html_document:
+    toc: True
+    toc_float: True
+---
+
+```{r, echo=FALSE, warning = FALSE, message=FALSE}
+library(httr)
+library(xml2)
+library(stringr)
+library(ggplot2)
+library(dplyr)
+library(plotly)
+library(zoo)
+```
+
+```{r, echo=FALSE, warning = FALSE}
+url <- "https://coinranking1.p.rapidapi.com/coins"
+
+coin_query_string <- list(
+  referenceCurrencyUuid = "yhjMzLPhuIDl",
+  timePeriod = "24h",
+  orderBy = "marketCap",
+  orderDirection = "desc",
+  limit = "50",
+  offset = "0"
+)
+
+query_coins <- VERB("GET", url, add_headers('X-RapidAPI-Key' = '9c9d129698mshb8275bce0446cbcp11a9c2jsn311a96af71b1', 'X-RapidAPI-Host' = 'coinranking1.p.rapidapi.com'), query = coin_query_string, content_type("application/octet-stream"))
+
+coins <- httr::content(query_coins)
+coins <- as.character(coins)
+```
+
+```{r,echo=FALSE, warning = FALSE}
+ids <- stringr::str_extract_all(coins, "uuid = \\\"[A-Za-z0-9_-]+\\\"")[[2]]
+ids <- stringr::str_remove_all(ids, "uuid = \\\"|\\\"")
+
+symbols <- stringr::str_extract_all(coins, "symbol = \\\"[A-Za-z0-9]+\\\"")[[2]]
+symbols <- stringr::str_remove_all(symbols, "symbol = \\\"|\\\"")
+
+names <- stringr::str_extract_all(coins, "name = \\\"[A-Za-z0-9 .()]+\\\"")[[2]]
+names <- stringr::str_remove_all(names, "name = \\\"|\\\"")
+
+colors <- stringr::str_extract_all(coins, "color = (\\\"[#A-Za-z0-9]+\\\")|NULL")[[2]]
+colors <- stringr::str_remove_all(colors, "color = \\\"|\\\"")
+
+tiers <- stringr::str_extract_all(coins, "tier = [0-9]")[[2]]
+tiers <- stringr::str_remove_all(tiers, "tier = ")
+
+prices <- stringr::str_extract_all(coins, "price = (\\\"[0-9.]+\\\")")[[2]]
+prices <- as.numeric(stringr::str_remove_all(prices, "price = \\\"|\\\""))
+
+volume24h <- stringr::str_extract_all(coins, "`24hVolume` = (\\\"[0-9.]+\\\")")[[2]]
+volume24h <- as.numeric(stringr::str_remove_all(volume24h, "`24hVolume` = \\\"|\\\""))
+
+changes <- stringr::str_extract_all(coins, "change = (\\\"-?[0-9.]+\\\")")[[2]]
+changes <- as.numeric(stringr::str_remove_all(changes, "change = \\\"|\\\""))
+
+marketCap <- stringr::str_extract_all(coins, "marketCap = (\\\"[0-9.]+\\\")")[[2]]
+marketCap <- as.numeric(stringr::str_remove_all(marketCap, "marketCap = \\\"|\\\""))
+```
+
+```{r build-db, echo=FALSE, warning = FALSE}
+database <- data.frame(
+  ids, symbols, names, colors, tiers, prices, volume24h, changes, marketCap
+)
+```
+
+```{r, echo=FALSE, warning = FALSE}
+max_amount <- c()
+current_amount <- c()
+circulatings <- c()
+number_of_markets <- c()
+number_of_exchanges <- c()
+
+for (id in database$ids) {
+  supply_url <- paste("https://coinranking1.p.rapidapi.com/coin/", id, sep = "")
+  supply <- VERB("GET",
+                 supply_url, 
+                 add_headers('X-RapidAPI-Key' = '9c9d129698mshb8275bce0446cbcp11a9c2jsn311a96af71b1',
+                             'X-RapidAPI-Host' = 'coinranking1.p.rapidapi.com'),
+                 content_type("application/octet-stream")
+                 )
+  supply <- httr::content(supply)
+  supply <- as.character(supply)
+  max_amount_id <- stringr::str_extract_all(supply, "max = \\\"[0-9.]+\\\"|max = NULL")[[2]]
+  max_amount_id <- as.numeric(stringr::str_remove_all(max_amount_id, "max = |\\\"|\\\""))
+  current_amount_id <- stringr::str_extract_all(supply, "total = \\\"[0-9.]+\\\"|total = NULL")[[2]]
+  current_amount_id <- as.numeric(stringr::str_remove_all(current_amount_id, "total = |\\\"|\\\""))
+  circulating <- stringr::str_extract_all(supply, "circulating = \\\"[0-9.]+\\\"|circulating = NULL")[[2]]
+  circulating <- as.numeric(stringr::str_remove_all(circulating, "circulating = |\\\"|\\\""))
+  market_number <- stringr::str_extract_all(supply, "numberOfMarkets = [0-9.]+|numberOfMarkets = NULL")[[2]]
+  market_number <- as.numeric(stringr::str_remove_all(market_number, "numberOfMarkets = "))
+  exchanges_number <- stringr::str_extract_all(supply, "numberOfExchanges = [0-9.]+|numberOfExchanges = NULL")[[2]]
+  exchanges_number <- as.numeric(stringr::str_remove_all(exchanges_number, "numberOfExchanges = "))
+  max_amount <- c(max_amount, max_amount_id)
+  current_amount <- c(current_amount, current_amount_id)
+  circulatings <- c(circulatings, circulating)
+  number_of_markets <- c(number_of_markets, market_number)
+  number_of_exchanges <- c(number_of_exchanges, exchanges_number)
+}
+```
+
+```{r,echo=FALSE, warning = FALSE}
+database$max <- max_amount
+database$current <- current_amount
+database$circulatings <- circulatings
+database$market_number <- number_of_markets
+database$exchange_number <- number_of_exchanges
+database$frequency_exchange <- ifelse(database$volume24h > median(database$volume24h), "high", "low")
+database <- database %>% mutate(`V/MC` = volume24h/marketCap)
+database_without_USD <- database %>% filter(names !="Tether USD")
+```
+
+```{r plt1, echo=FALSE, warning=FALSE}
+
+plot1_scatter <- database_without_USD %>% 
+  plot_ly(x = ~market_number, y = ~changes,
+          type = 'scatter', mode = 'markers', color = ~names,
+          size = ~volume24h, sizes = c(5, 70), marker = list(sizemode='diameter', opacity=0.5),
+          hoverinfo = 'text',
+          text = ~paste( paste(names, ":", sep=""), paste(" Market number: ", market_number, sep="") , paste(" change: ", exchange_number, sep=""), sep = "<br>")) %>%
+  layout(title = "Number of markets vs. change of last 24 hours",
+                  yaxis = list(title = "Change of last 24 hours"), xaxis = list(title = "Number of market"),
+         hovermode = "compare")
+```
+
+
+```{r plt2, echo=FALSE, warning=FALSE}
+
+
+plot2_scatter <- database_without_USD %>% 
+  plot_ly(x = ~exchange_number, y = ~changes,
+          type = 'scatter', mode = 'markers', color = ~symbols,
+          size = ~volume24h, sizes = c(5, 70), marker = list(sizemode='diameter', opacity=0.5),
+          hoverinfo = 'text',
+          text = ~paste( paste(names, ":", sep=""), paste(" change: ", market_number, sep="") , paste(" exchange number: ",
+                        exchange_number, sep=""), sep = "<br>")) %>%
+  layout(title = "Number of exchanges for coins vs Change of last 24 hours",
+                  yaxis = list(title = "Change of last 24 hours"), xaxis = list(title = "Number of Exchange"),
+         hovermode = "compare")
+```
+
+# Methods
+## Data Access
+
+These cryptocurrency data is collected by Coinranking API. The data contains the current information on 50 different cryptocurrencies, include current price, the change of price in last 24 hours, etc. And for analysis the price trend of cryptocurrency, I have also extracted historyical price data for several cryptocurrencies.
+The following are explainations of variable in our database extracted from coinranking API.
+
+```{r, echo=FALSE, warning=FALSE}
+var_names <- c("ids", "symbols", "names", "tiers", "volume24h", "changes", "marketCap", "max", "current", "circulatings", "market_number", "exchange_number", "V/MC", "timestamp", "price")
+var_defs <- c("Unique id", "Abbreviation or symbols", "Names of coin", "Seperate coin into 3 tiers based on supply, volume and market cap", "The volume over the last 24 hours of coins without the filters", "Percentage of change over the the last 24 hours", "Market capitalization. Price times circulating supply", "Maximum amount the coin's supply can ever be", "Current amount the coin's supply", "Number of coins that are circulating in the public market", "The number of markets that contain the this coin", "The number of exchanges that trade this coin", "volume/marketCap", "Unix timestamp", "history price corresponding to timestamp")
+
+var_table <- data.frame(Name = var_names, Definition = var_defs)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+knitr::kable(var_table, caption = "Variable")
+```
+
+
+## Data Wrangling
+By Coinranking API, we get a long char for all information, so I use regex to extract all these information.
+I extracted 50 cryptocurrencies with basic information and 6 representative cryptocurrencies with historical prices from 2018-04-27 to 2023-04-27 (5 years) based on current price and last 24 hours change.
+
+### Checking for NAs
+Below I will show the number of these six cryptocurrencies that have been priced at NA over the last five years:
+```{r, echo=FALSE, warning=FALSE}
+coin_names <- c("Bitcoin", "Tether USD", "Shiba Inu", "Monero", "Cronos", "EnergySwap")
+Proportion <- c("0.003831418", "0.003831418", "0.6086481", "0.003831418", "0.1559934", "0.7504105")
+
+Proportion_table <- data.frame(Cryptocurrency = coin_names, Proportion = Proportion)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+knitr::kable(Proportion_table)
+```
+
+By observing the historical data of these cryptocurrencies, I found the missing dates for Bitcoin, Tether USD and Monero are same, so this is probably because the api does not have access to price data for those days. And for the remaining three, since they were released late, the pre-release prices are all NA. That's why the missing proportion of them are very high.
+And for historical price, I converted Unix time stamp to date. In addition, I replace median NA price in my dataset with the mean of the previous and next non-NA values and add log_price for analysis.
+
+
+
+# Result
+
+## Summary Visual {.tabset}
+
+### Figure 1
+
+```{r, echo=FALSE, warning=FALSE}
+plot1_scatter
+```
+
+### Figure 2
+
+```{r, echo=FALSE, warning=FALSE}
+plot2_scatter
+```
+
+### Figure 3
+
+```{r, echo=FALSE, warning=FALSE}
+ggplot(data = database, aes(reorder(changes, changes))) +
+  theme_minimal() +
+  geom_col(aes(y=changes, fill = frequency_exchange), position = "dodge") +
+  labs(x=NULL, y=NULL, title = "24 hour Changes of Cryptocurrency") +
+  coord_flip()
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+table3 <- database %>%
+  group_by(frequency_exchange) %>%
+  summarise(median_price = median(prices), max_price = max(prices), min_price = min(prices), median_exchange_number = median(exchange_number),mean_exchange_number = mean(exchange_number), mean_ratio = mean(`V/MC`))
+knitr::kable(table3, caption = "Table 1: Summary of Cryptocurrency group by volume")
+```
+
+From the charts and table above, we can see that most of variables including number of markets, number of exchanges, frequency, etc., will not significantly affect the price change during last 24 hours. This is to be expected, and this is why these types of questions like predicting stock or cryptocurrency prices are so difficult to answer. Even finding the factors associated with the price is quite difficult. But we can see that the volume in last 24 hours (size of marker) is positively correlated with number of exchange and number of market from interactive plots.
+
+## Time seriers analysis
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+source("datainit.R")
+```
+
+### Interactive time series plot {.tabset}
+
+#### Figure 1
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+plt_history_price <- ggplot(
+  database, 
+  aes(x = timestamp, y = log(price), colour = names)
+) +
+  geom_line() +
+  theme_minimal()
+ggplotly(plt_history_price)
+```
+
+After taking logarithm of price, we can compare their price trend easier, since Bitcoin has much higher price than others, especially Shiba Inu. And we can see they actually have similar price trend except for Tether USD. Tether USD's price is surprisingly stable compared to other cryptocurrencies. And in the interactive scatter plot, we actually removed Tether USD, because the number of markets that contain the this coin and the number of exchange that trade this coin is unusually large compared with others. This is because it is the largest stablecoin by market capitalization and was originally designed to be valued at USD. So I won't discuss this coin too much in this project.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+db <- database %>% 
+  select(ids, names, price, timestamp)
+db1 <- db %>% filter(ids == "Qwsogvtv82FCd") %>% arrange(timestamp)
+db2 <- db %>% filter(ids == "HIVsRcGKkPFtW") %>% arrange(timestamp)
+db3 <- db %>% filter(ids == "xz24e0BjL") %>% arrange(timestamp)
+db4 <- db %>% filter(ids == "3mVx2FX_iJFp5") %>% arrange(timestamp)
+db5 <- db %>% filter(ids == "65PHZTpmE55b") %>% arrange(timestamp)
+db6 <- db %>% filter(ids == "SbWqqTui-") %>% arrange(timestamp)
+```
+
+### Time series for Bitcoin
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+db1$price[is.na(db1$price)] <- na.approx(db1$price, method = 'constant', f = 0.5)
+db1$log_price <- log(db1$price)
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+GPU_dates <- c(as.POSIXct('2018-09-20'), 
+               as.POSIXct('2019-07-09'), 
+               as.POSIXct('2020-09-20'),
+               as.POSIXct('2021-06-05'),
+               as.POSIXct('2022-11-01'))
+
+GPU_labels <- c("RTX20-", "RTX20-super", "RTX30-", "RTX30-Ti", "RTX40-")
+```
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+db1_cma_m <- rollmean(db1$price, k = 30, align = "center")
+db1_ma_m <- data.frame(timestamp = db1$timestamp[25:1822], ma = db1_cma_m)
+db1_cma_y <- rollmean(db1$price, k = 365, align = "center")
+db1_ma_y <- data.frame(timestamp = db1$timestamp[183:1645], ma = db1_cma_y)
+ggplot() +
+  geom_line(data = db1, aes(x = timestamp, y = price, color = "Original Data")) +
+  geom_line(data = db1_ma_m, aes(x = timestamp, y = ma, color = "Moving Average by Month")) +
+  geom_line(data = db1_ma_y, aes(x = timestamp, y = ma, color = "Moving Average by Year")) +
+  scale_color_manual(values = c("Original Data" = "black", "Moving Average by Month" = "red", "Moving Average by Year" = "blue")) +
+  geom_vline(xintercept = GPU_dates, linetype = "dashed", color = "purple") +
+  geom_text(data = data.frame(GPU_dates, GPU_labels),
+            aes(x = GPU_dates, y = -5, label = GPU_labels), 
+            vjust = -1, size = 2) +
+  labs(title = "Smoothing curve: centered moving averages of price for Bitcoin", x = "Timestamp", y = "Moving Average")
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+db1_cma_logm <- rollmean(db1$log_price, k = 30, align = "center")
+db1_ma_logm <- data.frame(timestamp = db1$timestamp[25:1822], ma = db1_cma_logm)
+db1_cma_logy <- rollmean(db1$log_price, k = 365, align = "center")
+db1_ma_logy <- data.frame(timestamp = db1$timestamp[183:1645], ma = db1_cma_logy)
+ggplot() +
+  geom_line(data = db1, aes(x = timestamp, y = log_price, color = "Original Data")) +
+  geom_line(data = db1_ma_logm, aes(x = timestamp, y = ma, color = "Moving Average by Month")) +
+  geom_line(data = db1_ma_logy, aes(x = timestamp, y = ma, color = "Moving Average by Year")) +
+  scale_color_manual(values = c("Original Data" = "black", "Moving Average by Month" = "red", "Moving Average by Year" = "blue")) +
+  geom_vline(xintercept = GPU_dates, linetype = "dashed", color = "purple") +
+  geom_text(data = data.frame(GPU_dates, GPU_labels),
+            aes(x = GPU_dates, y = 7, label = GPU_labels), 
+            vjust = -1, size = 2) +
+  labs(title = "Smoothing curve: centered moving averages of log price for Bitcoin", x = "Timestamp", y = "Moving Average")
+```
+
+From the centered moving average plots, we can easily look the general trend of Bitcoin's price. Before the mid of 2021, the general price trend was increasing. But after the mid of 2021, the price is heading for a downward trend. In addition, as I mentioned in midterm project, price are rising rapidly in these days. In addition, since producing new cryptocurrencies requires a lot of computing resources, I had speculated in the midterm project that the price of cryptocurrencies might be related to the release of new GPUs. Now from the graph, I can not see a direct relationship between the release date of Nvidia GPU (main GPU for mining) and price of Bitcoin. My guess is that since the max amount of bitcoin remains the same, its price is not significantly affected by the current stock and therefore the GPU does not have a significant impact on its price. In addition, I would have liked to observe the historical supply versus historical price and the number of tweets for #Bitcoin hashtag versus price, but extracting historical supply from all cryptocurrency APIs and extracting number of tweets out of 7 days need premium. So I have to give up these ideas. Instead, I try to use additive decomposition model to explain the price versus date.
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library("TTR")
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+bitcointimeseries <- ts(db1$price, frequency=365, start=c(2018,4,28))
+bitcointimeseriescomponents <- decompose(bitcointimeseries)
+plot(bitcointimeseriescomponents)
+bitcoinforecasts <- HoltWinters(bitcointimeseries, beta=FALSE, gamma=FALSE)
+plot(bitcoinforecasts)
+bitcoinSSE <- bitcoinforecasts$SSE
+```
+The irregular component can not be ignore in this case, so the accuracy of this model is relatively low.
+But we can still see that this additive time series model with simple exponential smoothing ($\alpha\approx0.406$, a little higher than typical value, 0.2, which means less smoothing than usual case) is able to explain to some extent the effect of price by date. And this model is apparently overfitted, so we can not predict future price by this model. Additionaly, the sum of squared error is very high, 10967652000, because there are some outliers around 2021.
+
+### Time series for Shiba Inu
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+db3 <- db3 %>% filter(timestamp >= "2021-05-10")
+db3$price[is.na(db3$price)] <- na.approx(db3$price, method = 'constant', f = 0.5)
+db3$log_price <- log(db3$price)
+db3_cma_m <- rollmean(db3$price, k = 30, align = "center")
+db3_ma_m <- data.frame(timestamp = db3$timestamp[15:703], ma = db3_cma_m)
+db3_cma_y <- rollmean(db3$price, k = 365, align = "center")
+db3_ma_y <- data.frame(timestamp = db3$timestamp[183:536], ma = db3_cma_y)
+ggplot() +
+  geom_line(data = db3, aes(x = timestamp, y = price, color = "Original Data")) +
+  geom_line(data = db3_ma_m, aes(x = timestamp, y = ma, color = "Moving Average by Month")) +
+  geom_line(data = db3_ma_y, aes(x = timestamp, y = ma, color = "Moving Average by Year")) +
+  scale_color_manual(values = c("Original Data" = "black", "Moving Average by Month" = "red", "Moving Average by Year" = "blue")) +
+  geom_vline(xintercept = GPU_dates, linetype = "dashed", color = "purple") +
+  geom_text(data = data.frame(GPU_dates, GPU_labels),
+            aes(x = GPU_dates, y = 0, label = GPU_labels), 
+            vjust = -1, size = 2) +
+  labs(title = "Smoothing curve: centered moving averages of price for Shiba Inu", x = "Timestamp", y = "Moving Average")
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+db3_cma_logm <- rollmean(db3$log_price, k = 30, align = "center")
+db3_ma_logm <- data.frame(timestamp = db3$timestamp[15:703], ma = db3_cma_logm)
+db3_cma_logy <- rollmean(db3$log_price, k = 365, align = "center")
+db3_ma_logy <- data.frame(timestamp = db3$timestamp[183:536], ma = db3_cma_logy)
+ggplot() +
+  geom_line(data = db3, aes(x = timestamp, y = log_price, color = "Original Data")) +
+  geom_line(data = db3_ma_logm, aes(x = timestamp, y = ma, color = "Moving Average by Month")) +
+  geom_line(data = db3_ma_logy, aes(x = timestamp, y = ma, color = "Moving Average by Year")) +
+  scale_color_manual(values = c("Original Data" = "black", "Moving Average by Month" = "red", "Moving Average by Year" = "blue")) +
+  geom_vline(xintercept = GPU_dates, linetype = "dashed", color = "purple") +
+  geom_text(data = data.frame(GPU_dates, GPU_labels),
+            aes(x = GPU_dates, y = -9, label = GPU_labels), 
+            vjust = -1, size = 2) +
+  labs(title = "Smoothing curve: centered moving averages of log price for Shiba Inu", x = "Timestamp", y = "Moving Average")
+```
+
+Shiba Inu's price trend is very much like a bit late Bitcoin's price trend. Increasing before 2021 November, then decrease after that. And rising after 2023. So I may say the price of Shiba Inu will rise in next several month. However, since there is just less than two years data, this is not suitable and actually can not fit an additive decomposition model. 
+
+### Time series for Monero
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+db4$price[is.na(db4$price)] <- na.approx(db4$price, method = 'constant', f = 0.5)
+db4$log_price <- log(db4$price)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+db4_cma_m <- rollmean(db4$price, k = 30, align = "center")
+db4_ma_m <- data.frame(timestamp = db4$timestamp[25:1822], ma = db4_cma_m)
+db4_cma_y <- rollmean(db4$price, k = 365, align = "center")
+db4_ma_y <- data.frame(timestamp = db4$timestamp[183:1645], ma = db4_cma_y)
+ggplot() +
+  geom_line(data = db4, aes(x = timestamp, y = price, color = "Original Data")) +
+  geom_line(data = db4_ma_m, aes(x = timestamp, y = ma, color = "Moving Average by Month")) +
+  geom_line(data = db4_ma_y, aes(x = timestamp, y = ma, color = "Moving Average by Year")) +
+  scale_color_manual(values = c("Original Data" = "black", "Moving Average by Month" = "red", "Moving Average by Year" = "blue")) +
+  geom_vline(xintercept = GPU_dates, linetype = "dashed", color = "purple") +
+  geom_text(data = data.frame(GPU_dates, GPU_labels),
+            aes(x = GPU_dates, y = 0, label = GPU_labels), 
+            vjust = -1, size = 2) +
+  labs(title = "Smoothing curve: centered moving averages of price for Monero", x = "Timestamp", y = "Moving Average")
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+db4_cma_logm <- rollmean(db4$log_price, k = 30, align = "center")
+db4_ma_logm <- data.frame(timestamp = db4$timestamp[25:1822], ma = db4_cma_logm)
+db4_cma_logy <- rollmean(db4$log_price, k = 365, align = "center")
+db4_ma_logy <- data.frame(timestamp = db4$timestamp[183:1645], ma = db4_cma_logy)
+ggplot() +
+  geom_line(data = db4, aes(x = timestamp, y = log_price, color = "Original Data")) +
+  geom_line(data = db4_ma_logm, aes(x = timestamp, y = ma, color = "Moving Average by Month")) +
+  geom_line(data = db4_ma_logy, aes(x = timestamp, y = ma, color = "Moving Average by Year")) +
+  scale_color_manual(values = c("Original Data" = "black", "Moving Average by Month" = "red", "Moving Average by Year" = "blue")) +
+  geom_vline(xintercept = GPU_dates, linetype = "dashed", color = "purple") +
+  geom_text(data = data.frame(GPU_dates, GPU_labels),
+            aes(x = GPU_dates, y = 7, label = GPU_labels), 
+            vjust = -1, size = 2) +
+  labs(title = "Smoothing curve: centered moving averages of log price for Monero", x = "Timestamp", y = "Moving Average")
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+Monerotimeseries <- ts(db4$price, frequency=365, start=c(2018,4,28))
+Monerotimeseriescomponents <- decompose(Monerotimeseries)
+plot(Monerotimeseriescomponents)
+Moneroforecasts <- HoltWinters(Monerotimeseries, beta=FALSE, gamma=FALSE)
+plot(Moneroforecasts)
+MonerocoinSSE <- Moneroforecasts$SSE
+```
+
+We can see that the trend component and seasonal component of Monero and Bitcoin are quite similar that is to be expected!

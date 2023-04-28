@@ -1,0 +1,20 @@
+---
+title: "JSC370 Final Project - Cryptocurrency Analysis"
+author: "Jin Shang"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Introduction
+
+Cryptocurrency is a digital or virtual currency that uses cryptography for security and operates independently of a central bank. Cryptocurrencies are decentralized, meaning that they are not controlled by a single authority or institution, but instead operate on a distributed ledger system called blockchain.
+
+The first and most well-known cryptocurrency is Bitcoin, which was created in 2009 by an anonymous person or group of people using the pseudonym Satoshi Nakamoto. Since then, many other cryptocurrencies have been developed, including Ethereum, Litecoin, and Ripple.
+
+Cryptocurrencies are created through a process called mining, which involves using computational power to solve complex mathematical problems and verify transactions on the blockchain. Transactions on the blockchain are recorded in blocks, which are then added to the blockchain in a chronological and immutable manner.
+
+Now, cryptocurrency has become an increasingly important investment in recent years, with many investors and traders looking to capitalize on its price volatility and potential for high returns. However cryptocurrencies, like any other investment, carry a number of risks that investors should be aware of before investing. For example, cryptocurrencies are known for their high volatility, with prices often fluctuating significantly over short periods of time and the value of cryptocurrencies depends on their adoption and use by individuals and businesses. If adoption is low or slows down, the value of a cryptocurrency may decrease or become worthless. Thus while they can provide opportunities for high returns, investors should carefully consider timing of buying or selling cryptocurrencies.
+
+In this project, we will explore the historical price data of some cryptocurrencies and try to gain insights into its price trends and factors that may affect its price. We will use various statistical and data visualization techniques to analyze the data and draw conclusions about the cryptocurrency's past and potential future performance.
+

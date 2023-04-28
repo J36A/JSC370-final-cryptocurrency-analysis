@@ -1,0 +1,15 @@
+name: "JSC370 Final Cryptocurrency Analysis"
+output_dir: "."
+navbar:
+  title: "JSC370 Final project"
+  left:
+    - text: "Introduction"
+      href: index.html
+    - text: "Methods & Results"
+      href: page2.html
+    - text: "Conclusion & Limitation"
+      href: page3.html
+output:
+  html_document:
+    theme: cosmo
+    css: styles.css
